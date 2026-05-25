@@ -1,0 +1,5 @@
+Plaintext
+pandas
+openpyxl
+streamlit-gsheets
+# Outras bibliotecas que você já usa, ex: face-recognition
