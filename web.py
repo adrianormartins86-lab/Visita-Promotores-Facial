@@ -8,7 +8,7 @@ import requests
 import base64
 import re
 import time
-from deepface import DeepFace  # <-- NOVA ENGINE ULTRA LEVE PARA SERVIDOR
+from deepface import DeepFace  # Engine de biometria
 import numpy as np
 from PIL import Image
 
@@ -74,7 +74,7 @@ if check_password():
             return res['data']['url'] if res['success'] else "Erro no Upload"
         except: return "Erro no Upload"
 
-    st.title("Visita Promotores Facial - Teste")
+    st.title("Visita Promotores Facial - Teste Automatizado")
     st.markdown("---")
 
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -131,53 +131,61 @@ if check_password():
             if "form_count" not in st.session_state:
                 st.session_state["form_count"] = 0
             
+            # --- NOVA SEÇÃO DE REGISTRO FACIAL AUTOMÁTICO ---
             with st.container():
-                st.markdown("### 📸 2. Realizar Registro por Reconhecimento Facial")
+                st.markdown("### 📸 2. Realizar Registro por Reconhecimento Facial Automatizado")
+                st.write("Apenas olhe para a câmera. O sistema identificará seu rosto e sua empresa automaticamente.")
                 
-                opcoes_forn = ["Escolha..."] + sorted(df_loja[col_fornecedor].unique().tolist())
+                obs = st.text_input("Observação (Opcional):", key=f"obs_{st.session_state['form_count']}")
                 
-                forn_sel = st.selectbox(
-                    "Selecione o fornecedor:", 
-                    opcoes_forn, 
-                    key=f"forn_{st.session_state['form_count']}"
-                )
+                # Câmera disponível logo de cara, sem selects intermediários
+                foto_capturada = st.camera_input("Olhe para a câmera", key=f"cam_{st.session_state['form_count']}")
 
-                if forn_sel != "Escolha...":
-                    dados_linha = df_loja[df_loja[col_fornecedor] == forn_sel].iloc[0]
-                    nome_promotor_cadastrado = dados_linha[col_promotor]
+                if foto_capturada:
+                    pasta_cadastro = "fotos_cadastro"
                     
-                    st.info(f"👤 Promotor esperado: **{nome_promotor_cadastrado}**")
-                    obs = st.text_input("3. Observação (Opcional):", key=f"obs_{st.session_state['form_count']}")
-                    
-                    foto_capturada = st.camera_input("Olhe para a câmera", key=f"cam_{st.session_state['form_count']}")
+                    if not os.path.exists(pasta_cadastro) or len(os.listdir(pasta_cadastro)) == 0:
+                        st.error("❌ Erro de Infraestrutura: A pasta 'fotos_cadastro' está vazia ou não existe no repositório.")
+                    else:
+                        with st.spinner('Buscando correspondência biométrica no banco...'):
+                            try:
+                                # Salva temporariamente a foto tirada
+                                caminho_temp_captura = "temp_identifica.jpg"
+                                with open(caminho_temp_captura, "wb") as f:
+                                    f.write(foto_capturada.getbuffer())
+                                
+                                # Varre a pasta inteira procurando quem é o dono desse rosto
+                                lista_resultados = DeepFace.find(
+                                    img_path = caminho_temp_captura,
+                                    db_path = pasta_cadastro,
+                                    enforce_detection = True,
+                                    detector_backend = 'opencv',
+                                    silent = True
+                                )
+                                
+                                if os.path.exists(caminho_temp_captura):
+                                    os.remove(caminho_temp_captura)
 
-                    if foto_capturada:
-                        caminho_base_rostos = f"fotos_cadastro/{forn_sel}.jpg"
-                        
-                        if not os.path.exists(caminho_base_rostos):
-                            st.error(f"❌ Não há foto de cadastro para o fornecedor '{forn_sel}' em 'fotos_cadastro/'.")
-                        else:
-                            with st.spinner('Analisando biometria facial...'):
-                                try:
-                                    # Salva temporariamente a foto tirada para o DeepFace ler
-                                    caminho_temp_captura = "temp_captura.jpg"
-                                    with open(caminho_temp_captura, "wb") as f:
-                                        f.write(foto_capturada.getbuffer())
+                                # Verifica se encontrou algum match na lista retornada
+                                if len(lista_resultados) > 0 and not lista_resultados[0].empty:
+                                    # Pega o melhor match (primeira linha do dataframe retornado)
+                                    melhor_match = lista_resultados[0].iloc[0]
+                                    caminho_foto_encontrada = melhor_match['identity']
                                     
-                                    # Executa a verificação facial usando o modelo VGG-Face (padrão e muito preciso)
-                                    resultado = DeepFace.verify(
-                                        img1_path = caminho_base_rostos,
-                                        img2_path = caminho_temp_captura,
-                                        enforce_detection = True,
-                                        detector_backend = 'opencv'
-                                    )
+                                    # Extrai o nome do arquivo (ex: "fotos_cadastro/Nestle.jpg" -> "Nestle")
+                                    nome_arquivo = os.path.basename(caminho_foto_encontrada)
+                                    forn_detectado = os.path.splitext(nome_arquivo)[0]
                                     
-                                    # Remove o arquivo temporário
-                                    if os.path.exists(caminho_temp_captura):
-                                        os.remove(caminho_temp_captura)
+                                    # Verifica se o fornecedor encontrado está escalado para esta loja
+                                    df_validacao_forn = df_loja[df_loja[col_fornecedor].astype(str) == forn_detectado]
                                     
-                                    # Verifica se deu match
-                                    if resultado.get("verified", False):
+                                    if not df_validacao_forn.empty:
+                                        dados_linha = df_validacao_forn.iloc[0]
+                                        nome_promotor_cadastrado = dados_linha[col_promotor]
+                                        
+                                        st.success(f"🎉 Promotor Identificado: **{nome_promotor_cadastrado}** ({forn_detectado})")
+                                        
+                                        # Faz o upload e salva na planilha
                                         bytes_da_foto = foto_capturada.getvalue()
                                         link_f = upload_para_imgbb(bytes_da_foto)
                                         
@@ -190,8 +198,8 @@ if check_password():
                                             novo_registro = pd.DataFrame([{
                                                 "Data": agora.strftime("%d/%m/%Y %H:%M:%S"),
                                                 "Loja": loja_sel, 
-                                                "Fornecedor": forn_sel,
-                                                "Observacao": f"[FACIAL_OK] {obs}".strip(),
+                                                "Fornecedor": forn_detectado,
+                                                "Observacao": f"[FACIAL_AUTOMATICO_OK] {obs}".strip(),
                                                 "Arquivo_Foto": link_f, 
                                                 "Usuario": st.session_state["usuario_logado"]
                                             }])
@@ -199,22 +207,21 @@ if check_password():
                                             df_final = pd.concat([df_atual, novo_registro], ignore_index=True)
                                             conn.update(data=df_final)
                                             
-                                            st.success(f"✅ Biometria Facial Aprovada! Visita registrada.")
                                             st.balloons()
-                                            
                                             st.session_state["form_count"] += 1
-                                            time.sleep(2)
+                                            time.sleep(3)
                                             st.rerun()
                                         else:
                                             st.error("❌ Falha no upload da foto para o ImgBB.")
                                     else:
-                                        st.error("❌ Acesso Negado! O rosto capturado não confere com o promotor cadastrado.")
+                                        st.error(f"❌ Promotor de '{forn_detectado}' identificado, mas essa empresa não está escalada para a Loja {loja_sel} hoje.")
+                                else:
+                                    st.error("❌ Rosto não reconhecido em nossa base de promotores cadastrados.")
                                         
-                                except Exception as e:
-                                    # Trata erro de não encontrar nenhum rosto na foto da câmera
-                                    if "Face could not be detected" in str(e):
-                                        st.error("❌ Nenhum rosto identificado na câmera. Posicione-se melhor e tente novamente.")
-                                    else:
-                                        st.error(f"Erro no processamento: {e}")
+                            except Exception as e:
+                                if "Face could not be detected" in str(e):
+                                    st.error("❌ Nenhum rosto identificado na câmera. Centralize-se melhor na tela.")
+                                else:
+                                    st.error(f"Erro no processamento automático: {e}")
     else:
         st.error("Erro: Arquivo 'fornecedores.xlsx' não encontrado no repositório.")
