@@ -1,4 +1,8 @@
 cmake
 g++
 build-essential
+gfortran
+libopenblas-dev
+liblapack-dev
 libgl1-mesa-dri
+libgl1-mesa-glx
