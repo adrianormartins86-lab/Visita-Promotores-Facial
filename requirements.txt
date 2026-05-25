@@ -4,4 +4,4 @@ opencv-python-headless
 pillow
 numpy
 pandas
-streamlit-gsheets
+streamlit-google-sheets
