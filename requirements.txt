@@ -5,4 +5,4 @@ pillow
 numpy
 pandas
 openpyxl
-streamlit-gsheets
+st-gsheets-connection
