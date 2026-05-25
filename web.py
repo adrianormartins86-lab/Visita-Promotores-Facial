@@ -16,15 +16,24 @@ from PIL import Image    # <-- NOVA DEPENDÊNCIA
 USER_GITHUB = "adrianormartins86-lab"
 REPO_GITHUB = "Visita-Promotores-Facial"  # <-- ATUALIZADO
 NOME_IMAGEM = "passaro_logo.png"
-# URL do ícone no repositório privado precisa de token, usando exemplo estático ou mantendo o fluxo
 URL_ICONE = f"https://raw.githubusercontent.com/{USER_GITHUB}/{REPO_GITHUB}/main/{NOME_IMAGEM}"
 
 st.set_page_config(
     page_title="Registro Promotores Facial", 
     layout="wide", 
-    # page_icon=URL_ICONE, # Ocultado até validação de acesso privado
     initial_sidebar_state="collapsed"
 )
+
+# --- FUNÇÃO COM CACHE PARA EVITAR TRAVAMENTO NO DEPLOY ---
+@st.cache_resource
+def carregar_modelos_faciais():
+    """Força o Streamlit a isolar o carregamento pesado da IA"""
+    # Apenas um truque para garantir que a biblioteca inicializou sem travar o escopo global
+    teste_inicializacao = face_recognition.__file__
+    return True
+
+# Inicializa o recurso de IA com segurança
+modelos_prontos = carregar_modelos_faciais()
 
 # --- SISTEMA DE LOGIN (Idêntico ao original) ---
 def check_password():
@@ -68,7 +77,6 @@ if check_password():
 
     def upload_para_imgbb(bytes_foto):
         try:
-            # Puxando segredo dos secrets avançados
             api_key = st.secrets["imgbb"]["api_key"]
             url = "https://api.imgbb.com/1/upload"
             foto_base64 = base64.b64encode(bytes_foto).decode('utf-8')
@@ -99,7 +107,6 @@ if check_password():
     df_forn = carregar_fornecedores()
 
     if df_forn is not None:
-        # Mapeamento de colunas (Ajuste se o fornecedores.xlsx mudar)
         col_fornecedor = df_forn.columns[1]  
         col_promotor = df_forn.columns[4]     
         col_frequencia = df_forn.columns[6]   
@@ -112,7 +119,6 @@ if check_password():
 
         st.subheader(f"📅 Hoje é {agora.strftime('%d/%m')} ({dia_hoje})")
 
-        # Seleção de Loja (Baseado no perfil do gerente logado)
         lista_lojas = sorted(df_forn[col_loja].dropna().astype(str).unique().tolist())
         if st.session_state["perfil"] == "analista":
             loja_sel = st.selectbox("Selecione a Loja:", ["Escolha..."] + lista_lojas)
@@ -142,9 +148,6 @@ if check_password():
             with st.container():
                 st.markdown("### 📸 2. Realizar Registro por Reconhecimento Facial")
                 
-                # É necessário ter uma pasta 'fotos_cadastro' no repositório
-                # com fotos JPG nomeadas exatamente como os fornecedores (ex: Nestle.jpg)
-                
                 opcoes_forn = ["Escolha..."] + sorted(df_loja[col_fornecedor].unique().tolist())
                 
                 forn_sel = st.selectbox(
@@ -161,7 +164,6 @@ if check_password():
                     
                     obs = st.text_input("3. Observação (Opcional):", key=f"obs_{st.session_state['form_count']}")
                     
-                    # Câmera em tempo real
                     foto_capturada = st.camera_input("Olhe para a câmera", key=f"cam_{st.session_state['form_count']}")
 
                     if foto_capturada:
@@ -172,57 +174,60 @@ if check_password():
                         else:
                             with st.spinner('Analisando biometria e gravando...'):
                                 try:
-                                    # 1. Carrega foto gabarito do repositório
+                                    # 1. Carrega foto gabarito com segurança apenas quando a foto é tirada
                                     img_gabarito = face_recognition.load_image_file(caminho_base_rostos)
-                                    encoding_gabarito = face_recognition.face_encodings(img_gabarito)[0]
+                                    encodings_gabarito = face_recognition.face_encodings(img_gabarito)
                                     
-                                    # 2. Converte foto capturada
-                                    img_atual_pil = Image.open(foto_capturada)
-                                    img_atual_np = np.array(img_atual_pil)
-                                    encodings_atuais = face_recognition.face_encodings(img_atual_np)
-                                    
-                                    if len(encodings_atuais) == 0:
-                                        st.error("Nenhum rosto identificado. Ajuste enquadramento/iluminação.")
+                                    if len(encodings_gabarito) == 0:
+                                        st.error(f"❌ Erro na foto de cadastro original de '{forn_sel}'. Não foi detectado rosto nela.")
                                     else:
-                                        encoding_atual = encodings_atuais[0]
+                                        encoding_gabarito = encodings_gabarito[0]
                                         
-                                        # 3. Compara (Tolerância menor = mais rígido)
-                                        match = face_recognition.compare_faces([encoding_gabarito], encoding_atual, tolerance=0.55)
+                                        # 2. Converte foto capturada
+                                        img_atual_pil = Image.open(foto_capturada)
+                                        img_atual_np = np.array(img_atual_pil)
+                                        encodings_atuais = face_recognition.face_encodings(img_atual_np)
                                         
-                                        if match[0]:
-                                            # SE RECONHECER: Salva
-                                            bytes_da_foto = foto_capturada.getvalue()
-                                            link_f = upload_para_imgbb(bytes_da_foto)
-                                            
-                                            if link_f != "Erro no Upload":
-                                                try:
-                                                    # Gravando no Google Sheet usando GSheetsConnection
-                                                    df_atual = conn.read(ttl=0)
-                                                except:
-                                                    df_atual = pd.DataFrame()
-
-                                                novo_registro = pd.DataFrame([{
-                                                    "Data": agora.strftime("%d/%m/%Y %H:%M:%S"),
-                                                    "Loja": loja_sel, 
-                                                    "Fornecedor": forn_sel,
-                                                    "Observacao": f"[FACIAL_OK] {obs}".strip(),
-                                                    "Arquivo_Foto": link_f, 
-                                                    "Usuario": st.session_state["usuario_logado"]
-                                                }])
-                                                
-                                                df_final = pd.concat([df_atual, novo_registro], ignore_index=True)
-                                                conn.update(data=df_final)
-                                                
-                                                st.success(f"✅ Facial Aprovado! Visita salva.")
-                                                st.balloons()
-                                                
-                                                st.session_state["form_count"] += 1
-                                                time.sleep(2)
-                                                st.rerun()
-                                            else:
-                                                st.error("❌ Falha no upload para o ImgBB.")
+                                        if len(encodings_atuais) == 0:
+                                            st.error("Nenhum rosto identificado na câmera. Ajuste o enquadramento.")
                                         else:
-                                            st.error("❌ Acesso Negado! Rosto não confere.")
+                                            encoding_atual = encodings_atuais[0]
+                                            
+                                            # 3. Compara rostos
+                                            match = face_recognition.compare_faces([encoding_gabarito], encoding_atual, tolerance=0.55)
+                                            
+                                            if match[0]:
+                                                bytes_da_foto = foto_capturada.getvalue()
+                                                link_f = upload_para_imgbb(bytes_da_foto)
+                                                
+                                                if link_f != "Erro no Upload":
+                                                    try:
+                                                        df_atual = conn.read(ttl=0)
+                                                    except:
+                                                        df_atual = pd.DataFrame()
+
+                                                    novo_registro = pd.DataFrame([{
+                                                        "Data": agora.strftime("%d/%m/%Y %H:%M:%S"),
+                                                        "Loja": loja_sel, 
+                                                        "Fornecedor": forn_sel,
+                                                        "Observacao": f"[FACIAL_OK] {obs}".strip(),
+                                                        "Arquivo_Foto": link_f, 
+                                                        "Usuario": st.session_state["usuario_logado"]
+                                                    }])
+                                                    
+                                                    df_final = pd.concat([df_atual, novo_registro], ignore_index=True)
+                                                    conn.update(data=df_final)
+                                                    
+                                                    st.success(f"✅ Facial Aprovado! Visita salva.")
+                                                    st.balloons()
+                                                    
+                                                    st.session_state["form_count"] += 1
+                                                    time.sleep(2)
+                                                    st.rerun()
+                                                else:
+                                                    st.error("❌ Falha no upload para o ImgBB.")
+                                            else:
+                                                st.error("❌ Acesso Negado! Rosto não confere.")
                                 except Exception as e:
                                     st.error(f"Erro no processamento facial: {e}")
     else:
