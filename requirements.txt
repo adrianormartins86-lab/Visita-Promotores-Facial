@@ -1,6 +1,6 @@
 streamlit
-dlib-bin
-face-recognition
+deepface
+tf-keras
 opencv-python-headless
 pillow
 numpy
