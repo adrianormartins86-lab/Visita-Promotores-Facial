@@ -113,12 +113,24 @@ def check_password():
                     else:
                         st.error("❌ E-mail ou senha incorretos.")
 
-        # --- 3. TELA EXCLUSIVA: CÂMERA DO PROMOTOR (MODO BANCO) ---
+        # --- 3. TELA EXCLUSIVA: CÂMERA DO PROMOTOR (MODO BANCO SEVERO) ---
         elif st.session_state["tela_ativa"] == "camera_promotor":
             st.subheader("📸 Identificação Automática de Promotores")
-            st.warning("Atenção: Aproxime bem o rosto da câmera (Estilo aplicativo de banco) para validar o enquadramento.")
             
-            foto_capturada = st.camera_input("Centralize seu rosto e dê zoom se aproximando da câmera")
+            # Guia visual simulando caixa de foco estilo banco
+            st.markdown(
+                """
+                <div style="background-color:#0e1117; padding:15px; border:2px dashed #ff4b4b; border-radius:10px; text-align:center; margin-bottom:15px;">
+                    <h4 style="color:#ff4b4b; margin:0;">[ 🔲 ENQUADRAMENTO OBRIGATÓRIO ]</h4>
+                    <p style="color:#ffffff; margin:5px 0 0 0; font-size:14px;">
+                        Aproxime seu rosto da câmera até que ele ocupe <b>quase toda a área central</b>. Fotos de longe serão recusadas automaticamente.
+                    </p>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+            
+            foto_capturada = st.camera_input("Centralize e aproxime o rosto da tela:")
             
             if foto_capturada:
                 with st.spinner('Validando enquadramento e buscando cadastro...'):
@@ -127,7 +139,7 @@ def check_password():
                         with open(caminho_temp_captura, "wb") as f:
                             f.write(foto_capturada.getbuffer())
                         
-                        # --- VERIFICAÇÃO DE ZOOM DO ROSTO ---
+                        # --- VERIFICAÇÃO RÍGIDA DE ZOOM DO ROSTO ---
                         faces_detectadas = DeepFace.extract_faces(
                             img_path = caminho_temp_captura, 
                             detector_backend = 'opencv', 
@@ -138,13 +150,13 @@ def check_password():
                             dados_rosto = faces_detectadas[0]
                             largura_rosto = dados_rosto["facial_area"]["w"]
                             
-                            # Bloqueia se o rosto estiver muito distante da lente
-                            if largura_rosto < 140:
-                                st.error("⚠️ Você está muito longe! Fique mais perto da câmera para dar zoom no rosto.")
+                            # SE O ROSTO FOR MENOR QUE 200 PIXELS, REJEITA (Força a pessoa a chegar perto da lente)
+                            if largura_rosto < 200:
+                                st.error("⚠️ REGISTRO NEGADO: Rosto muito distante! Fique mais perto da câmera para que o rosto ocupe o centro da tela.")
                                 if os.path.exists(caminho_temp_captura): os.remove(caminho_temp_captura)
                                 st.stop()
                         
-                        # --- INICIA BUSCA NO DRIVE ---
+                        # --- SE PASSOU NO ZOOM, BUSCA NO DRIVE ---
                         drive_service = obter_servico_drive()
                         folder_id = st.secrets["google_drive"]["folder_id"]
                         
