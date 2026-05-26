@@ -106,7 +106,7 @@ def check_password():
                         if email == email_analista:
                             st.session_state["perfil"] = "analista"
                         else:
-                            st.session_state["perfil"] = "gerente"
+                            st.session_state["perfil"] = "gerente"  # <--- CORRIGIDO PARA "gerente"
                             st.session_state["loja_id"] = re.search(r'\d+', email).group()
                         st.session_state["form_count"] = 0
                         st.rerun()
@@ -290,4 +290,147 @@ if check_password():
         fuso_br = pytz.timezone('America/Sao_Paulo')
         agora = datetime.now(fuso_br)
         dias_map = {0: 'SEG', 1: 'TER', 2: 'QUA', 3: 'QUI', 4: 'SEX', 5: 'SAB', 6: 'DOM'}
-        dia_hoje = dias_map
+        dia_hoje = dias_map[agora.weekday()]
+
+        # --- PAINEL DE CADASTRO BIOMÉTRICO (Liberado para Gerentes e Analistas) ---
+        with st.expander("⚙️ PAINEL DE CADASTRO BIOMÉTRICO (Gerentes e Analistas)", expanded=False):
+            st.write("Utilize esta seção para registrar novos rostos diretamente no Google Drive de forma segura (LGPD).")
+            lista_empresas_cadastro = sorted(df_forn[col_fornecedor].dropna().unique().tolist())
+            empresa_alvo = st.selectbox("1. Escolha a Empresa/Fornecedor:", ["Escolha..."] + lista_empresas_cadastro)
+            
+            if empresa_alvo != "Escolha...":
+                filtro_prom = df_forn[df_forn[col_fornecedor] == empresa_alvo].iloc[0]
+                st.info(f"👤 Promotor cadastrado no Excel para esta empresa: **{filtro_prom[col_promotor]}**")
+                
+                foto_gabarito = st.camera_input("2. Tire a foto oficial de perto (Gabarito)")
+                consentimento = st.checkbox("Confirmo que o prestador leu e assinou o Termo de Consentimento Biométrico corporativo.")
+                
+                if st.button(f"Salvar Biometria de {empresa_alvo}", use_container_width=True, disabled=not consentimento):
+                    with st.spinner("Enviando com segurança para o Google Drive corporativo..."):
+                        try:
+                            drive_service = obter_servico_drive()
+                            folder_id = st.secrets["google_drive"]["folder_id"]
+                            nome_arquivo_drive = f"{empresa_alvo}.jpg"
+                            
+                            caminho_local_salvar = "upload_gabarito.jpg"
+                            with open(caminho_local_salvar, "wb") as f:
+                                f.write(foto_gabarito.getbuffer())
+                                
+                            # Valida qualidade da foto antes de subir
+                            try:
+                                DeepFace.extract_faces(img_path=caminho_local_salvar, detector_backend='opencv')
+                            except:
+                                st.error("❌ Nenhum rosto nítido encontrado na foto de cadastro. Refaça de perto.")
+                                if os.path.exists(caminho_local_salvar): os.remove(caminho_local_salvar)
+                                st.stop()
+                                
+                            query_busca = f"'{folder_id}' in parents and name = '{nome_arquivo_drive}' and trashed = false"
+                            existentes = drive_service.files().list(q=query_busca, fields="files(id)").execute().get('files', [])
+                            
+                            metadata_arquivo = {'name': nome_arquivo_drive, 'parents': [folder_id]}
+                            media = MediaFileUpload(caminho_local_salvar, mimetype='image/jpeg', resumable=True)
+                            
+                            if existentes:
+                                drive_service.files().update(fileId=existentes[0]['id'], media_body=media).execute()
+                            else:
+                                drive_service.files().create(body=metadata_arquivo, media_body=media, fields='id').execute()
+                                
+                            st.success(f"✅ Biometria de {empresa_alvo} salva e sincronizada com sucesso!")
+                            if os.path.exists(caminho_local_salvar): os.remove(caminho_local_salvar)
+                            
+                            # Limpa o cache para o totem baixar a foto nova imediatamente
+                            pasta_local_temp = "temp_db_facial"
+                            if os.path.exists(pasta_local_temp):
+                                for f_limpar in os.listdir(pasta_local_temp): os.remove(os.path.join(pasta_local_temp, f_limpar))
+                            time.sleep(2)
+                            st.rerun()
+                        except Exception as err:
+                            st.error(f"Erro no upload para o Drive: {err}")
+        st.markdown("---")
+
+        # --- SEÇÃO DA DASHBOARD NORMAL DAS LOJAS ---
+        st.subheader(f"📅 Hoje é {agora.strftime('%d/%m')} ({dia_hoje})")
+
+        lista_lojas = sorted(df_forn[col_loja].dropna().astype(str).unique().tolist())
+        if st.session_state["perfil"] == "analista":
+            loja_sel = st.selectbox("Selecione a Loja:", ["Escolha..."] + lista_lojas)
+        else:
+            id_g = st.session_state["loja_id"]
+            loja_sel = next((l for l in lista_lojas if l.startswith(id_g) or l.startswith(id_g.zfill(2))), "Escolha...")
+            st.info(f"📍 **Loja: {loja_sel}**")
+
+        if loja_sel != "Escolha...":
+            df_loja = df_forn[df_forn[col_loja].astype(str) == loja_sel]
+            df_hoje = df_loja[df_loja[col_frequencia].astype(str).str.contains(dia_hoje, case=False, na=False)]
+
+            st.markdown("### 📋 Agenda de Visitas (Hoje)")
+            
+            if not df_hoje.empty:
+                colunas_exibir = [col_fornecedor, col_marcas, col_comprador, col_promotor, col_telefone, col_frequencia]
+                tabela_exibicao = df_hoje[colunas_exibir].copy().sort_values(by=col_fornecedor)
+                st.dataframe(tabela_exibicao, use_container_width=True, hide_index=True)
+            else:
+                st.warning("Nenhum fornecedor programado para hoje.")
+
+            st.markdown("---")
+
+            if "form_count" not in st.session_state:
+                st.session_state["form_count"] = 0
+            
+            with st.container():
+                st.markdown("### 2. Realizar Registro Manual")
+                opcoes_forn = ["Escolha..."] + sorted(df_loja[col_fornecedor].unique().tolist())
+                
+                forn_sel = st.selectbox(
+                    "Selecione o fornecedor para registrar a visita:", 
+                    opcoes_forn, 
+                    key=f"forn_{st.session_state['form_count']}"
+                )
+
+                if forn_sel != "Escolha...":
+                    dados_linha = df_loja[df_loja[col_fornecedor] == forn_sel].iloc[0]
+                    freq_cadastrada = dados_linha[col_frequencia]
+                    
+                    st.success(f"✅ **Fornecedor:** {forn_sel}")
+                    
+                    obs = st.text_input("3. Observação (Opcional):", key=f"obs_{st.session_state['form_count']}")
+                    foto = st.file_uploader("📸 Foto do Registro", type=["jpg", "jpeg", "png"], key=f"foto_{st.session_state['foto_{st.session_state['form_count']}']}")
+                    
+                    if foto: st.image(foto, width=250)
+
+                    if st.button("Confirmar Registro", use_container_width=True):
+                        try:
+                            with st.spinner('🚀 Gravando com segurança...'):
+                                link_f = upload_para_imgbb(foto) if foto else "Sem foto"
+                                
+                                if link_f != "Erro no Upload":
+                                    try:
+                                        df_atual = conn.read(ttl=0)
+                                    except:
+                                        df_atual = pd.DataFrame()
+
+                                    novo_registro = pd.DataFrame([{
+                                        "Data": agora.strftime("%d/%m/%Y %H:%M:%S"),
+                                        "Loja": loja_sel, 
+                                        "Fornecedor": forn_sel,
+                                        "Frequencia": freq_cadastrada, 
+                                        "Observacao": obs,
+                                        "Arquivo_Foto": link_f, 
+                                        "Usuario": st.session_state["usuario_logado"]
+                                    }])
+                                    
+                                    df_final = pd.concat([df_atual, novo_registro], ignore_index=True)
+                                    conn.update(data=df_final)
+                                    
+                                    st.success(f"✅ Registro concluído!")
+                                    st.balloons()
+                                    
+                                    st.session_state["form_count"] += 1
+                                    time.sleep(2)
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Falha no upload da foto. Verifique a chave da API do ImgBB.")
+                        except Exception as e:
+                            st.error(f"Erro ao salvar: {e}")
+    else:
+        st.error("Erro: Arquivo 'fornecedores.xlsx' não encontrado.")
