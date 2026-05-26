@@ -8,52 +8,211 @@ import requests
 import base64
 import re
 import time
-from deepface import DeepFace  # Engine de biometria
-import numpy as np
-from PIL import Image
+from deepface import DeepFace
+
+# Bibliotecas do Google para baixar gabaritos do Drive de forma segura (LGPD)
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+import io
 
 # --- CONFIGURAÇÃO E LOGO ---
 USER_GITHUB = "adrianormartins86-lab"
-REPO_GITHUB = "Visita-Promotores-Facial"
+REPO_GITHUB = "Python"
 NOME_IMAGEM = "passaro_logo.png"
 URL_ICONE = f"https://raw.githubusercontent.com/{USER_GITHUB}/{REPO_GITHUB}/main/{NOME_IMAGEM}"
 
 st.set_page_config(
-    page_title="Registro Promotores Facial", 
+    page_title="Registro Promotores", 
     layout="wide", 
+    page_icon=URL_ICONE,
     initial_sidebar_state="collapsed"
 )
 
-# --- SISTEMA DE LOGIN ---
+# --- FUNÇÃO DE CONEXÃO COM GOOGLE DRIVE (API SEGURA PARA GABARITOS) ---
+def obter_servico_drive():
+    try:
+        info_projeto = {
+            "type": st.secrets["connections"]["gsheets"]["type"],
+            "project_id": st.secrets["connections"]["gsheets"]["project_id"],
+            "private_key_id": st.secrets["connections"]["gsheets"]["private_key_id"],
+            "private_key": st.secrets["connections"]["gsheets"]["private_key"],
+            "client_email": st.secrets["connections"]["gsheets"]["client_email"],
+            "client_id": st.secrets["connections"]["gsheets"]["client_id"],
+            "auth_uri": st.secrets["connections"]["gsheets"]["auth_uri"],
+            "token_uri": st.secrets["connections"]["gsheets"]["token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["connections"]["gsheets"]["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["connections"]["gsheets"]["client_x509_cert_url"]
+        }
+        creds = service_account.Credentials.from_service_account_info(
+            info_projeto, 
+            scopes=["https://www.googleapis.com/auth/drive"]
+        )
+        return build('drive', 'v3', credentials=creds)
+    except Exception as e:
+        st.error(f"Erro ao conectar com o Google Drive: {e}")
+        return None
+
+# --- SISTEMA DE LOGIN COM SELEÇÃO DE FLUXO ---
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
+    if "tela_ativa" not in st.session_state:
+        st.session_state["tela_ativa"] = "menu_inicial" # Opções: menu_inicial, login_admin, camera_promotor
+        
     if st.session_state["authenticated"]:
         return True
 
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.title("Acesso Restrito")
+        try: st.image(URL_ICONE, width=100)
+        except: st.write("🐦")
+        st.title("Controle de Acesso")
         st.write("Laboratório de Reconhecimento Facial")
-        email = st.text_input("E-mail", placeholder="seu_email@molicenter.com.br").lower().strip()
-        senha = st.text_input("Senha", type="password")
-        if st.button("Entrar", use_container_width=True):
-            emails_gerentes = [f"gerente{i}@molicenter.com.br" for i in range(1, 15)]
-            email_analista = "analista@molicenter.com.br"
-            if (email in emails_gerentes or email == email_analista) and senha == "moli1234":
-                st.session_state["authenticated"] = True
-                st.session_state["usuario_logado"] = email
-                if email == email_analista:
-                    st.session_state["perfil"] = "analista"
-                else:
-                    st.session_state["perfil"] = "gerente"
-                    st.session_state["loja_id"] = re.search(r'\d+', email).group()
-                st.session_state["form_count"] = 0
+        st.markdown("---")
+
+        # --- 1. TELA INTERMÉDIA: MENU INICIAL ---
+        if st.session_state["tela_ativa"] == "menu_inicial":
+            st.write("### Escolha seu perfil para acessar:")
+            
+            if st.button("📷 SOU PROMOTOR (Validação Facial)", use_container_width=True, type="primary"):
+                st.session_state["tela_ativa"] = "camera_promotor"
                 st.rerun()
-            else:
-                st.error("❌ E-mail ou senha incorretos.")
+                
+            st.write("") # Espaçamento
+            
+            if st.button("👤 SOU FUNCIONÁRIO (Login Administrativo)", use_container_width=True):
+                st.session_state["tela_ativa"] = "login_admin"
+                st.rerun()
+
+        # --- 2. TELA EXCLUSIVA: LOGIN DO FUNCIONÁRIO ---
+        elif st.session_state["tela_ativa"] == "login_admin":
+            st.subheader("Login Administrativo")
+            email = st.text_input("E-mail", placeholder="seu_email@molicenter.com.br").lower().strip()
+            senha = st.text_input("Senha", type="password")
+            
+            col_b1, col_b2 = st.columns(2)
+            with col_b1:
+                if st.button("⬅️ Voltar", use_container_width=True):
+                    st.session_state["tela_ativa"] = "menu_inicial"
+                    st.rerun()
+            with col_b2:
+                if st.button("Entrar", use_container_width=True, type="primary"):
+                    emails_gerentes = [f"gerente{i}@molicenter.com.br" for i in range(1, 15)]
+                    email_analista = "analista@molicenter.com.br"
+                    if (email in emails_gerentes or email == email_analista) and senha == "moli1234":
+                        st.session_state["authenticated"] = True
+                        st.session_state["usuario_logado"] = email
+                        if email == email_analista:
+                            st.session_state["perfil"] = "analista"
+                        else:
+                            st.session_state["perfil"] = "gerente"
+                            st.session_state["loja_id"] = re.search(r'\d+', email).group()
+                        st.session_state["form_count"] = 0
+                        st.rerun()
+                    else:
+                        st.error("❌ E-mail ou senha incorretos.")
+
+        # --- 3. TELA EXCLUSIVA: CÂMERA DO PROMOTOR ---
+        elif st.session_state["tela_ativa"] == "camera_promotor":
+            st.subheader("📸 Identificação Automática de Promotores")
+            st.write("Olhe para a câmera para registrar sua entrada de forma automática.")
+            
+            foto_capturada = st.camera_input("Posicione seu rosto no centro")
+            
+            if foto_capturada:
+                with st.spinner('Buscando seu cadastro de forma segura...'):
+                    try:
+                        drive_service = obter_servico_drive()
+                        folder_id = st.secrets["google_drive"]["folder_id"]
+                        
+                        pasta_local_temp = "temp_db_facial"
+                        os.makedirs(pasta_local_temp, exist_ok=True)
+                        
+                        # Sincroniza imagens do Drive corporativo
+                        query = f"'{folder_id}' in parents and mimeType = 'image/jpeg' and trashed = false"
+                        resultados_drive = drive_service.files().list(q=query, fields="files(id, name)").execute()
+                        arquivos_drive = resultados_drive.get('files', [])
+                        
+                        if not arquivos_drive:
+                            st.error("❌ Base biométrica vazia no Google Drive.")
+                        else:
+                            for arquivo in arquivos_drive:
+                                caminho_local_foto = os.path.join(pasta_local_temp, arquivo['name'])
+                                if not os.path.exists(caminho_local_foto):
+                                    request_download = drive_service.files().get_media(fileId=arquivo['id'])
+                                    fh = io.FileIO(caminho_local_foto, 'wb')
+                                    downloader = MediaIoBaseDownload(fh, request_download)
+                                    done = False
+                                    while not done:
+                                        status, done = downloader.next_chunk()
+                            
+                            caminho_temp_captura = "temp_identifica.jpg"
+                            with open(caminho_temp_captura, "wb") as f:
+                                f.write(foto_capturada.getbuffer())
+                            
+                            # Varredura DeepFace
+                            lista_resultados = DeepFace.find(
+                                img_path = caminho_temp_captura,
+                                db_path = pasta_local_temp,
+                                enforce_detection = True,
+                                detector_backend = 'opencv',
+                                silent = True
+                            )
+                            
+                            if os.path.exists(caminho_temp_captura): os.remove(caminho_temp_captura)
+                            
+                            if len(lista_resultados) > 0 and not lista_resultados[0].empty:
+                                melhor_match = lista_resultados[0].iloc[0]
+                                nome_arquivo = os.path.basename(melhor_match['identity'])
+                                forn_detectado = os.path.splitext(nome_arquivo)[0]
+                                
+                                conn = st.connection("gsheets", type=GSheetsConnection)
+                                try: df_atual = conn.read(ttl=0)
+                                except: df_atual = pd.DataFrame()
+                                
+                                fuso_br = pytz.timezone('America/Sao_Paulo')
+                                agora_br = datetime.now(fuso_br)
+                                
+                                api_key = st.secrets["imgbb"]["api_key"]
+                                foto_base64 = base64.b64encode(foto_capturada.getvalue()).decode('utf-8')
+                                res_imgbb = requests.post("https://api.imgbb.com/1/upload", {"key": api_key, "image": foto_base64}).json()
+                                link_auditoria = res_imgbb['data']['url'] if res_imgbb['success'] else "Erro Link"
+                                
+                                novo_registro = pd.DataFrame([{
+                                    "Data": agora_br.strftime("%d/%m/%Y %H:%M:%S"),
+                                    "Loja": "RECONHECIMENTO_AUTOMATICO", 
+                                    "Fornecedor": forn_detectado,
+                                    "Frequencia": "FACIAL_PASSIVO", 
+                                    "Observacao": "[CHECK-IN FACIAL AUTOMÁTICO SUCESSO]",
+                                    "Arquivo_Foto": link_auditoria, 
+                                    "Usuario": "totem_biometrico"
+                                }])
+                                
+                                df_final = pd.concat([df_atual, novo_registro], ignore_index=True)
+                                conn.update(data=df_final)
+                                
+                                st.success(f"🎉 Reconhecido com Sucesso! Empresa: {forn_detectado}")
+                                st.balloons()
+                                time.sleep(3)
+                                st.session_state["tela_ativa"] = "menu_inicial"
+                                st.rerun()
+                            else:
+                                st.error("❌ Rosto não reconhecido na base. Procure a gerência para atualizar seu cadastro.")
+                                
+                    except Exception as e:
+                        if "Face could not be detected" in str(e):
+                            st.error("❌ Nenhum rosto detectado. Centralize-se melhor na tela.")
+                        else:
+                            st.error(f"Erro na análise: {e}")
+            
+            if st.button("⬅️ Voltar para o Menu Inicial", use_container_width=True):
+                st.session_state["tela_ativa"] = "menu_inicial"
+                st.rerun()
+                
     return False
 
+# --- FLUXO PRINCIPAL PÓS-LOGIN (GERENTES/ANALISTAS) ---
 if check_password():
     with st.sidebar:
         with st.expander("⚙️ Opções de Conta"):
@@ -63,18 +222,18 @@ if check_password():
                 st.session_state.clear()
                 st.rerun()
 
-    def upload_para_imgbb(bytes_foto):
+    def upload_para_imgbb(arquivo_foto):
         try:
             api_key = st.secrets["imgbb"]["api_key"]
             url = "https://api.imgbb.com/1/upload"
-            foto_base64 = base64.b64encode(bytes_foto).decode('utf-8')
+            foto_base64 = base64.b64encode(arquivo_foto.getvalue()).decode('utf-8')
             payload = {"key": api_key, "image": foto_base64}
             response = requests.post(url, payload)
             res = response.json()
             return res['data']['url'] if res['success'] else "Erro no Upload"
         except: return "Erro no Upload"
 
-    st.title("Visita Promotores Facial - Teste Automatizado")
+    st.title("Visita Promotores")
     st.markdown("---")
 
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -95,9 +254,12 @@ if check_password():
 
     if df_forn is not None:
         col_fornecedor = df_forn.columns[1]  
+        col_marcas = df_forn.columns[2]      
+        col_comprador = df_forn.columns[3]    
         col_promotor = df_forn.columns[4]     
-        col_frequencia = df_forn.columns[6]   
-        col_loja = df_forn.columns[-1]        
+        col_telefone = df_forn.columns[5]     
+        col_frequencia = df_forn.columns[6] 
+        col_loja = df_forn.columns[-1]      
         
         fuso_br = pytz.timezone('America/Sao_Paulo')
         agora = datetime.now(fuso_br)
@@ -119,8 +281,9 @@ if check_password():
             df_hoje = df_loja[df_loja[col_frequencia].astype(str).str.contains(dia_hoje, case=False, na=False)]
 
             st.markdown("### 📋 Agenda de Visitas (Hoje)")
+            
             if not df_hoje.empty:
-                colunas_exibir = [col_fornecedor, col_promotor, col_frequencia]
+                colunas_exibir = [col_fornecedor, col_marcas, col_comprador, col_promotor, col_telefone, col_frequencia]
                 tabela_exibicao = df_hoje[colunas_exibir].copy().sort_values(by=col_fornecedor)
                 st.dataframe(tabela_exibicao, use_container_width=True, hide_index=True)
             else:
@@ -131,97 +294,60 @@ if check_password():
             if "form_count" not in st.session_state:
                 st.session_state["form_count"] = 0
             
-            # --- NOVA SEÇÃO DE REGISTRO FACIAL AUTOMÁTICO ---
             with st.container():
-                st.markdown("### 📸 2. Realizar Registro por Reconhecimento Facial Automatizado")
-                st.write("Apenas olhe para a câmera. O sistema identificará seu rosto e sua empresa automaticamente.")
+                st.markdown("### 2. Realizar Registro Manual")
+                opcoes_forn = ["Escolha..."] + sorted(df_loja[col_fornecedor].unique().tolist())
                 
-                obs = st.text_input("Observação (Opcional):", key=f"obs_{st.session_state['form_count']}")
-                
-                # Câmera disponível logo de cara, sem selects intermediários
-                foto_capturada = st.camera_input("Olhe para a câmera", key=f"cam_{st.session_state['form_count']}")
+                forn_sel = st.selectbox(
+                    "Selecione o fornecedor para registrar a visita:", 
+                    opcoes_forn, 
+                    key=f"forn_{st.session_state['form_count']}"
+                )
 
-                if foto_capturada:
-                    pasta_cadastro = "fotos_cadastro"
+                if forn_sel != "Escolha...":
+                    dados_linha = df_loja[df_loja[col_fornecedor] == forn_sel].iloc[0]
+                    freq_cadastrada = dados_linha[col_frequencia]
                     
-                    if not os.path.exists(pasta_cadastro) or len(os.listdir(pasta_cadastro)) == 0:
-                        st.error("❌ Erro de Infraestrutura: A pasta 'fotos_cadastro' está vazia ou não existe no repositório.")
-                    else:
-                        with st.spinner('Buscando correspondência biométrica no banco...'):
-                            try:
-                                # Salva temporariamente a foto tirada
-                                caminho_temp_captura = "temp_identifica.jpg"
-                                with open(caminho_temp_captura, "wb") as f:
-                                    f.write(foto_capturada.getbuffer())
-                                
-                                # Varre a pasta inteira procurando quem é o dono desse rosto
-                                lista_resultados = DeepFace.find(
-                                    img_path = caminho_temp_captura,
-                                    db_path = pasta_cadastro,
-                                    enforce_detection = True,
-                                    detector_backend = 'opencv',
-                                    silent = True
-                                )
-                                
-                                if os.path.exists(caminho_temp_captura):
-                                    os.remove(caminho_temp_captura)
+                    st.success(f"✅ **Fornecedor:** {forn_sel}")
+                    
+                    obs = st.text_input("3. Observação (Opcional):", key=f"obs_{st.session_state['form_count']}")
+                    foto = st.file_uploader("📸 Foto do Registro", type=["jpg", "jpeg", "png"], key=f"foto_{st.session_state['form_count']}")
+                    
+                    if foto: st.image(foto, width=250)
 
-                                # Verifica se encontrou algum match na lista retornada
-                                if len(lista_resultados) > 0 and not lista_resultados[0].empty:
-                                    # Pega o melhor match (primeira linha do dataframe retornado)
-                                    melhor_match = lista_resultados[0].iloc[0]
-                                    caminho_foto_encontrada = melhor_match['identity']
-                                    
-                                    # Extrai o nome do arquivo (ex: "fotos_cadastro/Nestle.jpg" -> "Nestle")
-                                    nome_arquivo = os.path.basename(caminho_foto_encontrada)
-                                    forn_detectado = os.path.splitext(nome_arquivo)[0]
-                                    
-                                    # Verifica se o fornecedor encontrado está escalado para esta loja
-                                    df_validacao_forn = df_loja[df_loja[col_fornecedor].astype(str) == forn_detectado]
-                                    
-                                    if not df_validacao_forn.empty:
-                                        dados_linha = df_validacao_forn.iloc[0]
-                                        nome_promotor_cadastrado = dados_linha[col_promotor]
-                                        
-                                        st.success(f"🎉 Promotor Identificado: **{nome_promotor_cadastrado}** ({forn_detectado})")
-                                        
-                                        # Faz o upload e salva na planilha
-                                        bytes_da_foto = foto_capturada.getvalue()
-                                        link_f = upload_para_imgbb(bytes_da_foto)
-                                        
-                                        if link_f != "Erro no Upload":
-                                            try:
-                                                df_atual = conn.read(ttl=0)
-                                            except:
-                                                df_atual = pd.DataFrame()
+                    if st.button("Confirmar Registro", use_container_width=True):
+                        try:
+                            with st.spinner('🚀 Gravando com segurança...'):
+                                link_f = upload_para_imgbb(foto) if foto else "Sem foto"
+                                
+                                if link_f != "Erro no Upload":
+                                    try:
+                                        df_atual = conn.read(ttl=0)
+                                    except:
+                                        df_atual = pd.DataFrame()
 
-                                            novo_registro = pd.DataFrame([{
-                                                "Data": agora.strftime("%d/%m/%Y %H:%M:%S"),
-                                                "Loja": loja_sel, 
-                                                "Fornecedor": forn_detectado,
-                                                "Observacao": f"[FACIAL_AUTOMATICO_OK] {obs}".strip(),
-                                                "Arquivo_Foto": link_f, 
-                                                "Usuario": st.session_state["usuario_logado"]
-                                            }])
-                                            
-                                            df_final = pd.concat([df_atual, novo_registro], ignore_index=True)
-                                            conn.update(data=df_final)
-                                            
-                                            st.balloons()
-                                            st.session_state["form_count"] += 1
-                                            time.sleep(3)
-                                            st.rerun()
-                                        else:
-                                            st.error("❌ Falha no upload da foto para o ImgBB.")
-                                    else:
-                                        st.error(f"❌ Promotor de '{forn_detectado}' identificado, mas essa empresa não está escalada para a Loja {loja_sel} hoje.")
+                                    novo_registro = pd.DataFrame([{
+                                        "Data": agora.strftime("%d/%m/%Y %H:%M:%S"),
+                                        "Loja": loja_sel, 
+                                        "Fornecedor": forn_sel,
+                                        "Frequencia": freq_cadastrada, 
+                                        "Observacao": obs,
+                                        "Arquivo_Foto": link_f, 
+                                        "Usuario": st.session_state["usuario_logado"]
+                                    }])
+                                    
+                                    df_final = pd.concat([df_atual, novo_registro], ignore_index=True)
+                                    conn.update(data=df_final)
+                                    
+                                    st.success(f"✅ Registro concluído!")
+                                    st.balloons()
+                                    
+                                    st.session_state["form_count"] += 1
+                                    time.sleep(2)
+                                    st.rerun()
                                 else:
-                                    st.error("❌ Rosto não reconhecido em nossa base de promotores cadastrados.")
-                                        
-                            except Exception as e:
-                                if "Face could not be detected" in str(e):
-                                    st.error("❌ Nenhum rosto identificado na câmera. Centralize-se melhor na tela.")
-                                else:
-                                    st.error(f"Erro no processamento automático: {e}")
+                                    st.error("❌ Falha no upload da foto. Verifique a chave da API do ImgBB.")
+                        except Exception as e:
+                            st.error(f"Erro ao salvar: {e}")
     else:
-        st.error("Erro: Arquivo 'fornecedores.xlsx' não encontrado no repositório.")
+        st.error("Erro: Arquivo 'fornecedores.xlsx' não encontrado.")
