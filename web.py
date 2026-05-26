@@ -151,7 +151,7 @@ def check_password():
                             
                             if largura_rosto < 200:
                                 st.error("⚠️ REGISTRO NEGADO: Rosto muito distante! Fique mais perto da câmera.")
-                                if os.path.exists(caminio_temp_captura): os.remove(caminho_temp_captura)
+                                if os.path.exists(caminho_temp_captura): os.remove(caminho_temp_captura)
                                 st.stop()
                         
                         # --- SE PASSOU NO ZOOM, BUSCA NO DRIVE ---
@@ -286,16 +286,17 @@ if check_password():
                 empresa_alvo = st.selectbox("1. Empresa:", ["Escolha..."] + lista_empresas_cadastro, key="sb_cad_sidebar")
                 
                 if empresa_alvo != "Escolha...":
-                    filtro_prom = df_forn[df_forn[col_fornecedor] == empresa_alvo].iloc[0]
-                    st.info(f"Promotor: **{filtro_prom[col_promotor]}**")
+                    # MODIFICAÇÃO: Nome agora é digitado manualmente e telefone virou opcional
+                    nome_digitado = st.text_input("2. Nome do Promotor:", placeholder="Digite o nome completo", key="txt_nome_sidebar").strip()
+                    tel_opcional = st.text_input("3. Telefone (Opcional):", placeholder="(DDD) 00000-0000", key="txt_tel_sidebar").strip()
                     
-                    foto_gabarito = st.camera_input("2. Foto de perto (Gabarito)", key="cam_cad_sidebar")
+                    foto_gabarito = st.camera_input("4. Foto de perto (Gabarito)", key="cam_cad_sidebar")
                     
                     st.markdown(
                         """
                         <div style="background-color:#1e222b; padding:10px; border-radius:5px; height:130px; overflow-y:scroll; font-size:11px; color:#bdc3c7; border:1px solid #34495e; margin-bottom:10px; line-height:1.4;">
                             <b>**TERMOS DE USO E PROTEÇÃO DE DADOS (LGPD)**</b><br><br>
-                            Declaramos para os devidos fins legais, em conformidade com a Lei Geral de Proteção de Dados (LGPD), que a imagem capturada para este cadastro biométrico (gabarito) será utilizada estritamente para o registro interno de ponto e controle de acesso de promotores nas unidades Molicenter.<br><br>
+                            Declaramos para os devidos fins legais, in conformidade com a Lei Geral de Proteção de Dados (LGPD), que a imagem capturada para este cadastro biométrico (gabarito) será utilizada estritamente para o registro interno de ponto e controle de acesso de promotores nas unidades Molicenter.<br><br>
                             Os dados biométricos serão armazenados de forma segura em ambiente corporativo privado (Google Drive) e jamais serão compartilhados com terceiros sem consentimento explícito.
                         </div>
                         """, 
@@ -304,7 +305,10 @@ if check_password():
                     
                     consentimento = st.checkbox("Termo assinado (LGPD)", key="chk_cad_sidebar")
                     
-                    if st.button(f"Salvar Biometria", use_container_width=True, disabled=not consentimento, key="btn_cad_sidebar"):
+                    # O botão só habilita se aceitar a LGPD E se o nome do promotor não estiver em branco
+                    botao_desabilitado = not (consentimento and len(nome_digitado) > 0)
+                    
+                    if st.button(f"Salvar Biometria", use_container_width=True, disabled=botao_desabilitado, key="btn_cad_sidebar"):
                         if foto_gabarito is not None:
                             with st.spinner("Sincronizando Drive..."):
                                 try:
@@ -447,4 +451,4 @@ if check_password():
                         except Exception as e:
                             st.error(f"Erro ao salvar: {e}")
     else:
-        st.error("Erro: Arquivo 'fornecedores.xlsx' nâo encontrado.")
+        st.error("Erro: Arquivo 'fornecedores.xlsx' não encontrado.")
