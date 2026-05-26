@@ -51,8 +51,8 @@ def check_password():
     with col2:
         try: st.image(URL_ICONE, width=100)
         except: st.write("🐦")
-        st.title("Gerenciamento Promotores")
-        st.write("Supermercado Molicenter")
+        st.title("Supermercado Molicenter")
+        st.write("Gerenciamento Promotores")
         st.markdown("---")
 
         if st.session_state["tela_ativa"] == "menu_inicial":
