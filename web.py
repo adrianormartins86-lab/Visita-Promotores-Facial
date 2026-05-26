@@ -257,7 +257,7 @@ if check_password():
         st.markdown("---")
         
         if df_forn is not None:
-            with st.expander("⚙️ CADASTRO BIOMÉTRICO", expanded=False):
+            with st.expander("⚙️ CADASTRO PROMOTOR", expanded=False):
                 st.caption("Registre novos rostos de forma segura via nuvem.")
                 lista_empresas_cadastro = sorted(df_forn[col_fornecedor].dropna().unique().tolist())
                 empresa_alvo = st.selectbox("1. Empresa:", ["Escolha..."] + lista_empresas_cadastro, key="sb_cad_sidebar")
@@ -282,9 +282,9 @@ if check_password():
                     consentimento = st.checkbox("Termo assinado (LGPD)", key="chk_cad_sidebar")
                     botao_desabilitado = not (consentimento and len(nome_digitado) > 0)
                     
-                    if st.button(f"Salvar Biometria", use_container_width=True, disabled=botao_desabilitado, key="btn_cad_sidebar"):
+                    if st.button(f"Salvar Promotor", use_container_width=True, disabled=botao_desabilitado, key="btn_cad_sidebar"):
                         if foto_gabarito is not None:
-                            with st.spinner("Processando e salvando biometria..."):
+                            with st.spinner("Processando e salvando promotor..."):
                                 try:
                                     caminho_local_salvar = "upload_gabarito.jpg"
                                     with open(caminho_local_salvar, "wb") as f:
