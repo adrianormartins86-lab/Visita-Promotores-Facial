@@ -151,7 +151,7 @@ def check_password():
                             
                             if largura_rosto < 200:
                                 st.error("⚠️ REGISTRO NEGADO: Rosto muito distante! Fique mais perto da câmera.")
-                                if os.path.exists(caminho_temp_captura): os.remove(caminho_temp_captura)
+                                if os.path.exists(caminio_temp_captura): os.remove(caminho_temp_captura)
                                 st.stop()
                         
                         # --- SE PASSOU NO ZOOM, BUSCA NO DRIVE ---
@@ -265,13 +265,14 @@ if check_password():
         col_frequencia = df_forn.columns[6] 
         col_loja = df_forn.columns[-1]
 
-    # --- BARRA LATERAL ESQUERDA (OPÇÕES + CADASTRO REPOSICIONADO) ---
+    # --- BARRA LATERAL ESQUERDA ---
     with st.sidebar:
         st.header("🎛️ Menu de Controle")
         
         with st.expander("👤 Opções de Conta", expanded=True):
-            st.write(f"**Usuário:** {st.session_state['usuario_logado']}")
-            st.write(f"**Perfil:** {st.session_state['perfil'].capitalize']}")
+            perfil_str = str(st.session_state.get('perfil', '')).capitalize()
+            st.write(f"**Usuário:** {st.session_state.get('usuario_logado', '')}")
+            st.write(f"**Perfil:** {perfil_str}")
             if st.button("Sair / Logout", use_container_width=True):
                 st.session_state.clear()
                 st.rerun()
@@ -290,7 +291,6 @@ if check_password():
                     
                     foto_gabarito = st.camera_input("2. Foto de perto (Gabarito)", key="cam_cad_sidebar")
                     
-                    # --- AJUSTE: TERMO DE USO E PRIVACIDADE LGPD ROLÁVEL ---
                     st.markdown(
                         """
                         <div style="background-color:#1e222b; padding:10px; border-radius:5px; height:130px; overflow-y:scroll; font-size:11px; color:#bdc3c7; border:1px solid #34495e; margin-bottom:10px; line-height:1.4;">
@@ -366,10 +366,10 @@ if check_password():
         st.subheader(f"📅 Hoje é {agora.strftime('%d/%m')} ({dia_hoje})")
 
         lista_lojas = sorted(df_forn[col_loja].dropna().astype(str).unique().tolist())
-        if st.session_state["perfil"] == "analista":
+        if st.session_state.get("perfil") == "analista":
             loja_sel = st.selectbox("Selecione a Loja:", ["Escolha..."] + lista_lojas)
         else:
-            id_g = st.session_state["loja_id"]
+            id_g = st.session_state.get("loja_id", "")
             loja_sel = next((l for l in lista_lojas if l.startswith(id_g) or l.startswith(id_g.zfill(2))), "Escolha...")
             st.info(f"📍 **Loja: {loja_sel}**")
 
@@ -447,4 +447,4 @@ if check_password():
                         except Exception as e:
                             st.error(f"Erro ao salvar: {e}")
     else:
-        st.error("Erro: Arquivo 'fornecedores.xlsx' não encontrado.")
+        st.error("Erro: Arquivo 'fornecedores.xlsx' nâo encontrado.")
