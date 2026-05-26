@@ -58,7 +58,7 @@ def check_password():
     if "authenticated" not in st.session_state:
         st.session_state["authenticated"] = False
     if "tela_ativa" not in st.session_state:
-        st.session_state["tela_ativa"] = "menu_inicial" # Opções: menu_inicial, login_admin, camera_promotor
+        st.session_state["tela_ativa"] = "menu_inicial"
         
     if st.session_state["authenticated"]:
         return True
@@ -71,21 +71,16 @@ def check_password():
         st.write("Laboratório de Reconhecimento Facial")
         st.markdown("---")
 
-        # --- 1. TELA INTERMÉDIA: MENU INICIAL ---
         if st.session_state["tela_ativa"] == "menu_inicial":
             st.write("### Escolha seu perfil para acessar:")
-            
             if st.button("📷 SOU PROMOTOR (Validação Facial)", use_container_width=True, type="primary"):
                 st.session_state["tela_ativa"] = "camera_promotor"
                 st.rerun()
-                
             st.write("") 
-            
             if st.button("👤 SOU FUNCIONÁRIO (Login Administrativo)", use_container_width=True):
                 st.session_state["tela_ativa"] = "login_admin"
                 st.rerun()
 
-        # --- 2. TELA EXCLUSIVA: LOGIN DO FUNCIONÁRIO ---
         elif st.session_state["tela_ativa"] == "login_admin":
             st.subheader("Login Administrativo")
             email = st.text_input("E-mail", placeholder="seu_email@molicenter.com.br").lower().strip()
@@ -113,10 +108,8 @@ def check_password():
                     st.session_state["tela_ativa"] = "menu_inicial"
                     st.rerun()
 
-        # --- 3. TELA EXCLUSIVA: CÂMERA DO PROMOTOR (MODO BANCO SEVERO) ---
         elif st.session_state["tela_ativa"] == "camera_promotor":
             st.subheader("📸 Identificação Automática de Promotores")
-            
             st.markdown(
                 """
                 <div style="background-color:#0e1117; padding:15px; border:2px dashed #ff4b4b; border-radius:10px; text-align:center; margin-bottom:15px;">
@@ -138,7 +131,6 @@ def check_password():
                         with open(caminho_temp_captura, "wb") as f:
                             f.write(foto_capturada.getbuffer())
                         
-                        # --- VERIFICAÇÃO RÍGIDA DE ZOOM DO ROSTO ---
                         faces_detectadas = DeepFace.extract_faces(
                             img_path = caminho_temp_captura, 
                             detector_backend = 'opencv', 
@@ -148,13 +140,11 @@ def check_password():
                         if len(faces_detectadas) > 0:
                             dados_rosto = faces_detectadas[0]
                             largura_rosto = dados_rosto["facial_area"]["w"]
-                            
                             if largura_rosto < 200:
                                 st.error("⚠️ REGISTRO NEGADO: Rosto muito distante! Fique mais perto da câmera.")
                                 if os.path.exists(caminho_temp_captura): os.remove(caminho_temp_captura)
                                 st.stop()
                         
-                        # --- SE PASSOU NO ZOOM, BUSCA NO DRIVE ---
                         drive_service = obter_servico_drive()
                         folder_id = st.secrets["google_drive"]["folder_id"]
                         
@@ -238,7 +228,6 @@ def check_password():
                 
     return False
 
-# --- FLUXO PRINCIPAL PÓS-LOGIN (GERENTES E ANALISTAS) ---
 if check_password():
     conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -265,7 +254,6 @@ if check_password():
         col_frequencia = df_forn.columns[6] 
         col_loja = df_forn.columns[-1]
 
-    # --- BARRA LATERAL ESQUERDA ---
     with st.sidebar:
         st.header("🎛️ Menu de Controle")
         
@@ -328,22 +316,40 @@ if check_password():
                                     existentes = drive_service.files().list(q=query_busca, fields="files(id)", supportsAllDrives=True).execute().get('files', [])
                                     
                                     metadata_arquivo = {'name': nome_arquivo_drive, 'parents': [folder_id]}
-                                    # CORREÇÃO DA COTA: Desativado o 'resumable' para forçar herança de metadados da pasta pai
                                     media = MediaFileUpload(caminho_local_salvar, mimetype='image/jpeg', resumable=False)
                                     
+                                    # --- REALIZA O UPLOAD DO FICHEIRO ---
                                     if existentes:
+                                        file_id = existentes[0]['id']
                                         drive_service.files().update(
-                                            fileId=existentes[0]['id'], 
+                                            fileId=file_id, 
                                             media_body=media,
                                             supportsAllDrives=True
                                         ).execute()
                                     else:
-                                        drive_service.files().create(
+                                        arquivo_criado = drive_service.files().create(
                                             body=metadata_arquivo, 
                                             media_body=media, 
                                             fields='id',
                                             supportsAllDrives=True
                                         ).execute()
+                                        file_id = arquivo_criado.get('id')
+                                        
+                                    # --- SOLUÇÃO CRUCIAL DA COTA: MOVE A PROPRIEDADE PARA O TEU EMAIL ---
+                                    meu_email_pessoal = "adriandormartins86@gmail.com"
+                                    permissao_proprietario = {
+                                        'type': 'user',
+                                        'role': 'owner',
+                                        'emailAddress': meu_email_pessoal
+                                    }
+                                    
+                                    # Transfere a posse do ficheiro (usa a tua cota de espaço pessoal em vez da cota zero da Service Account)
+                                    drive_service.permissions().create(
+                                        fileId=file_id,
+                                        body=permissao_proprietario,
+                                        transferOwnership=True,
+                                        supportsAllDrives=True
+                                    ).execute()
                                         
                                     st.success(f"✅ Salvo com sucesso!")
                                     if os.path.exists(caminho_local_salvar): os.remove(caminho_local_salvar)
