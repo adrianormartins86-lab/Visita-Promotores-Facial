@@ -85,13 +85,12 @@ def check_password():
                 st.session_state["tela_ativa"] = "login_admin"
                 st.rerun()
 
-        # --- 2. TELA EXCLUSIVA: LOGIN DO FUNCIONÁRIO (BOTÕES INVERTIDOS PARA TAB) ---
+        # --- 2. TELA EXCLUSIVA: LOGIN DO FUNCIONÁRIO ---
         elif st.session_state["tela_ativa"] == "login_admin":
             st.subheader("Login Administrativo")
             email = st.text_input("E-mail", placeholder="seu_email@molicenter.com.br").lower().strip()
             senha = st.text_input("Senha", type="password")
             
-            # Invertido: coluna 1 agora é o Entrar (foco do TAB) e coluna 2 é o Voltar
             col_b1, col_b2 = st.columns(2)
             with col_b1:
                 if st.button("Entrar", use_container_width=True, type="primary"):
@@ -151,7 +150,7 @@ def check_password():
                             largura_rosto = dados_rosto["facial_area"]["w"]
                             
                             if largura_rosto < 200:
-                                st.error("⚠️ REGISTRO NEGADO: Rosto muito distante! Fique mais perto da câmera para que o rosto ocupe o centro da tela.")
+                                st.error("⚠️ REGISTRO NEGADO: Rosto muito distante! Fique mais perto da câmera.")
                                 if os.path.exists(caminho_temp_captura): os.remove(caminho_temp_captura)
                                 st.stop()
                         
@@ -225,7 +224,7 @@ def check_password():
                                 st.session_state["tela_ativa"] = "menu_inicial"
                                 st.rerun()
                             else:
-                                st.error("❌ Rosto não reconhecido na base. Procure a gerência para atualizar seu cadastro.")
+                                st.error("❌ Rosto não reconhecido na base.")
                                 
                     except Exception as e:
                         if "Face could not be detected" in str(e):
@@ -257,7 +256,6 @@ if check_password():
 
     df_forn = carregar_fornecedores()
 
-    # Mapeamento de colunas globais do Excel
     if df_forn is not None:
         col_fornecedor = df_forn.columns[1]  
         col_marcas = df_forn.columns[2]      
@@ -267,20 +265,19 @@ if check_password():
         col_frequencia = df_forn.columns[6] 
         col_loja = df_forn.columns[-1]
 
-    # --- BARRA LATERAL (OPÇÕES DE CONTA + NOVO PAINEL DE CADASTRO COPIADO PARA CÁ) ---
+    # --- BARRA LATERAL ESQUERDA (OPÇÕES + CADASTRO REPOSICIONADO) ---
     with st.sidebar:
         st.header("🎛️ Menu de Controle")
         
         with st.expander("👤 Opções de Conta", expanded=True):
             st.write(f"**Usuário:** {st.session_state['usuario_logado']}")
-            st.write(f"**Perfil:** {st.session_state['perfil'].capitalize()}")
+            st.write(f"**Perfil:** {st.session_state['perfil'].capitalize']}")
             if st.button("Sair / Logout", use_container_width=True):
                 st.session_state.clear()
                 st.rerun()
                 
         st.markdown("---")
         
-        # --- AJUSTE 2: PAINEL DE CADASTRO AGORA REPOSICIONADO NA ESQUERDA ---
         if df_forn is not None:
             with st.expander("⚙️ CADASTRO BIOMÉTRICO", expanded=False):
                 st.caption("Registre novos rostos diretamente no Google Drive corporativo.")
@@ -292,6 +289,19 @@ if check_password():
                     st.info(f"Promotor: **{filtro_prom[col_promotor]}**")
                     
                     foto_gabarito = st.camera_input("2. Foto de perto (Gabarito)", key="cam_cad_sidebar")
+                    
+                    # --- AJUSTE: TERMO DE USO E PRIVACIDADE LGPD ROLÁVEL ---
+                    st.markdown(
+                        """
+                        <div style="background-color:#1e222b; padding:10px; border-radius:5px; height:130px; overflow-y:scroll; font-size:11px; color:#bdc3c7; border:1px solid #34495e; margin-bottom:10px; line-height:1.4;">
+                            <b>**TERMOS DE USO E PROTEÇÃO DE DADOS (LGPD)**</b><br><br>
+                            Declaramos para os devidos fins legais, em conformidade com a Lei Geral de Proteção de Dados (LGPD), que a imagem capturada para este cadastro biométrico (gabarito) será utilizada estritamente para o registro interno de ponto e controle de acesso de promotores nas unidades Molicenter.<br><br>
+                            Os dados biométricos serão armazenados de forma segura em ambiente corporativo privado (Google Drive) e jamais serão compartilhados com terceiros sem consentimento explícito.
+                        </div>
+                        """, 
+                        unsafe_allow_html=True
+                    )
+                    
                     consentimento = st.checkbox("Termo assinado (LGPD)", key="chk_cad_sidebar")
                     
                     if st.button(f"Salvar Biometria", use_container_width=True, disabled=not consentimento, key="btn_cad_sidebar"):
@@ -334,8 +344,6 @@ if check_password():
                                     st.rerun()
                                 except Exception as err:
                                     st.error(f"Erro Drive: {err}")
-                        else:
-                            st.error("Capture a foto primeiro.")
 
     # --- FLUXO DA TELA CENTRAL ---
     def upload_para_imgbb(arquivo_foto):
