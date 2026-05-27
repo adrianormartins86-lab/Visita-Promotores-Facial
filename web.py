@@ -188,8 +188,8 @@ def check_password():
                                     "Data": agora_br.strftime("%d/%m/%Y %H:%M:%S"),
                                     "Loja": "RECONHECIMENTO_AUTOMATICO", 
                                     "Fornecedor": forn_detectado,
-                                    "Frequencia": "FACIAL_PASSIVO_ZOOM", 
-                                    "Observacao": "[CHECK-IN RECONHECIDO COM SUCESSO]",
+                                    "Frequencia": "FACIAL", 
+                                    "Observacao": "[CHECK-IN FACIAL]",
                                     "Arquivo_Foto": link_auditoria, 
                                     "Usuario": "totem_biometrico"
                                 }])
